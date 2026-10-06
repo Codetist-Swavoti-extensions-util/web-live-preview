@@ -1,0 +1,9 @@
+{
+  "name": "web-live-preview",
+  "displayName": "Web Live Preview",
+  "description": "Preview a local web app inline in Codetist Chromium and share screenshots with the AI agent.",
+  "version": "1.3.4",
+  "webview": {
+    "entry": "webview/index.tsx"
+  }
+}
