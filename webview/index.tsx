@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './styles.css';
 
 type PreviewStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -38,9 +38,25 @@ export default function WebLivePreview() {
   const [url, setUrl] = useState('');
   const [status, setStatus] = useState<PreviewStatus>('idle');
   const [error, setError] = useState('');
-  const [screenshot, setScreenshot] = useState('');
+  const [agentConnected, setAgentConnected] = useState(false);
   const [colors, setColors] = useState(DEFAULT_COLORS);
-  const [agentLive, setAgentLive] = useState(false);
+  const historyRef = useRef({ entries: [] as string[], index: -1 });
+  const [history, setHistory] = useState(historyRef.current);
+
+  const recordRoute = (nextUrl: string) => {
+    const current = historyRef.current;
+    if (current.entries[current.index] === nextUrl) return;
+
+    const existingIndex = current.entries.lastIndexOf(nextUrl);
+    const next = existingIndex >= 0
+      ? { entries: current.entries, index: existingIndex }
+      : {
+          entries: [...current.entries.slice(0, current.index + 1), nextUrl],
+          index: current.index + 1,
+        };
+    historyRef.current = next;
+    setHistory(next);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -60,9 +76,12 @@ export default function WebLivePreview() {
 
     const unsubscribe = window.ideAPI.on('previewState', next => {
       if (!mounted) return;
-      setAgentLive(next.source === 'agent');
+      setAgentConnected(next.source === 'agent' && next.status !== 'closed');
       setStatus(next.status === 'closed' ? 'idle' : next.status);
-      if (next.url) setUrl(next.url);
+      if (next.url) {
+        setUrl(next.url);
+        recordRoute(next.url);
+      }
       setError(next.error || '');
     });
     return () => {
@@ -87,12 +106,31 @@ export default function WebLivePreview() {
     setStatus('loading');
     try {
       await window.ideAPI.preview.open(url);
-      setAgentLive(false);
+      recordRoute(url);
     } catch (caught) {
       setStatus('error');
       setError(caught instanceof Error ? caught.message : String(caught));
     }
   };
+
+  const navigateHistory = async (index: number) => {
+    const nextUrl = history.entries[index];
+    if (!nextUrl) return;
+    setError('');
+    setStatus('loading');
+    try {
+      await window.ideAPI.preview.navigate(nextUrl);
+      historyRef.current = { ...historyRef.current, index };
+      setHistory(historyRef.current);
+      setUrl(nextUrl);
+    } catch (caught) {
+      setStatus('error');
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  };
+
+  const goBack = () => navigateHistory(history.index - 1);
+  const goForward = () => navigateHistory(history.index + 1);
 
   const reload = async () => {
     setError('');
@@ -105,83 +143,46 @@ export default function WebLivePreview() {
     }
   };
 
-  const captureScreenshot = async () => {
-    setError('');
-    try {
-      setScreenshot(await window.ideAPI.preview.captureScreenshot());
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  };
-
-  const closePreview = async () => {
-    setError('');
-    try {
-      await window.ideAPI.preview.close();
-      setStatus('idle');
-      setAgentLive(false);
-      setScreenshot('');
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  };
-
   return (
-    <main className={`live-preview ${agentLive ? 'agent-live' : ''}`} style={style}>
-      <header className="live-preview__header">
-        <div className="live-preview__brand">
-          <span className="live-preview__mark">◉</span>
-          <div>
-            <strong>Web Live Preview</strong>
-            <small>Local Chromium runtime</small>
-          </div>
-        </div>
-        <span className={`live-preview__agent ${agentLive ? 'is-live' : ''}`}>
-          <span />
-          {agentLive ? 'AGENT LIVE' : 'READY'}
-        </span>
-      </header>
-
+    <main className="live-preview" style={style}>
       <form className="live-preview__toolbar" onSubmit={navigate}>
-        <span className={`live-preview__status ${status}`} title={error || status} />
-        <input
-          aria-label="Local app URL"
-          value={url}
-          onChange={event => setUrl(event.target.value)}
-          placeholder="http://localhost:5173"
-          spellCheck={false}
-        />
-        <button type="submit" title="Open URL">Go</button>
-        <button type="button" onClick={reload} disabled={status === 'idle'} title="Reload">↻</button>
-        <button type="button" onClick={captureScreenshot} disabled={status !== 'ready'} title="Capture screenshot">▣</button>
-        <button type="button" onClick={closePreview} disabled={status === 'idle'} title="Close preview">×</button>
-      </form>
-
-      <section className="live-preview__empty">
-        <div className="live-preview__card">
-          <span className={`live-preview__large-status ${status}`} />
-          <h1>{status === 'ready' ? 'Preview is running' : status === 'loading' ? 'Loading your app' : 'Preview a local app'}</h1>
-          <p>{status === 'ready'
-            ? 'Your app is open in the inline Chromium pane beside this extension.'
-            : status === 'loading'
-              ? 'Waiting for Chromium to finish loading.'
-              : 'Start a development server and enter its localhost URL above.'}</p>
-          {status === 'loading' && <div className="live-preview__progress"><span /></div>}
-          {error && <p className="live-preview__error" role="alert">{error}</p>}
-          {screenshot && (
-            <div className="live-preview__screenshot">
-              <img src={screenshot} alt="Captured preview" />
-              <button type="button" onClick={() => setScreenshot('')}>Dismiss screenshot</button>
-              <small>Screenshot is ready for the AI agent.</small>
-            </div>
+        <button
+          type="button"
+          onClick={goBack}
+          disabled={history.index <= 0}
+          aria-label="Go back"
+          title="Go back"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m10 3-5 5 5 5" /></svg>
+        </button>
+        <button
+          type="button"
+          onClick={goForward}
+          disabled={history.index < 0 || history.index >= history.entries.length - 1}
+          aria-label="Go forward"
+          title="Go forward"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
+        </button>
+        <div className={`live-preview__location ${agentConnected ? 'is-agent-connected' : ''}`}>
+          <input
+            aria-label="Local app URL"
+            value={url}
+            onChange={event => setUrl(event.target.value)}
+            placeholder="http://localhost:5173"
+            spellCheck={false}
+          />
+          {agentConnected && (
+            <span className="live-preview__agent-status" role="status" aria-live="polite">
+              CONNECTED TO AGENT
+            </span>
           )}
         </div>
-      </section>
-
-      <footer className="live-preview__footer">
-        <span>Sandboxed Chromium</span>
-        <span>localhost · 127.0.0.1 · ::1</span>
-      </footer>
+        <button type="button" onClick={reload} disabled={status === 'idle'} aria-label="Reload" title="Reload">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.45-3.54L13 6M13 3v3h-3" /></svg>
+        </button>
+      </form>
+      {error && <p className="live-preview__error" role="alert">{error}</p>}
     </main>
   );
 }
