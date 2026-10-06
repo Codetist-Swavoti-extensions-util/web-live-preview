@@ -131,6 +131,14 @@
   overflow-wrap: anywhere;
 }
 
+.live-preview__frame {
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  border: 0;
+  background: #fff;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .live-preview__agent-status {
     animation: none;

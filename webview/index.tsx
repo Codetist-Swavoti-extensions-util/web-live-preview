@@ -19,6 +19,7 @@ declare global {
         reload(): Promise<unknown>;
         close(): Promise<unknown>;
         captureScreenshot(): Promise<string>;
+        inlineUrl(url: string): Promise<string>;
       };
     };
   }
@@ -36,12 +37,14 @@ const DEFAULT_COLORS = {
 
 export default function WebLivePreview() {
   const [url, setUrl] = useState('');
+  const [inlineUrl, setInlineUrl] = useState('');
   const [status, setStatus] = useState<PreviewStatus>('idle');
   const [error, setError] = useState('');
   const [agentConnected, setAgentConnected] = useState(false);
   const [colors, setColors] = useState(DEFAULT_COLORS);
   const historyRef = useRef({ entries: [] as string[], index: -1 });
   const [history, setHistory] = useState(historyRef.current);
+  const [frameKey, setFrameKey] = useState(0);
 
   const recordRoute = (nextUrl: string) => {
     const current = historyRef.current;
@@ -105,8 +108,9 @@ export default function WebLivePreview() {
     setError('');
     setStatus('loading');
     try {
-      await window.ideAPI.preview.open(url);
-      recordRoute(url);
+      const nextUrl = await window.ideAPI.preview.inlineUrl(url);
+      setInlineUrl(nextUrl);
+      recordRoute(nextUrl);
     } catch (caught) {
       setStatus('error');
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -119,10 +123,11 @@ export default function WebLivePreview() {
     setError('');
     setStatus('loading');
     try {
-      await window.ideAPI.preview.navigate(nextUrl);
+      const validatedUrl = await window.ideAPI.preview.inlineUrl(nextUrl);
+      setInlineUrl(validatedUrl);
       historyRef.current = { ...historyRef.current, index };
       setHistory(historyRef.current);
-      setUrl(nextUrl);
+      setUrl(validatedUrl);
     } catch (caught) {
       setStatus('error');
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -134,6 +139,11 @@ export default function WebLivePreview() {
 
   const reload = async () => {
     setError('');
+    if (inlineUrl) {
+      setStatus('loading');
+      setFrameKey(previous => previous + 1);
+      return;
+    }
     setStatus('loading');
     try {
       await window.ideAPI.preview.reload();
@@ -183,6 +193,16 @@ export default function WebLivePreview() {
         </button>
       </form>
       {error && <p className="live-preview__error" role="alert">{error}</p>}
+      {inlineUrl && (
+        <iframe
+          key={frameKey}
+          className="live-preview__frame"
+          src={inlineUrl}
+          title="Local app preview"
+          sandbox="allow-scripts allow-forms allow-popups allow-modals"
+          onLoad={() => setStatus('ready')}
+        />
+      )}
     </main>
   );
 }
