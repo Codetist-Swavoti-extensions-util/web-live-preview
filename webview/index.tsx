@@ -19,7 +19,6 @@ declare global {
         reload(): Promise<unknown>;
         close(): Promise<unknown>;
         captureScreenshot(): Promise<string>;
-        inlineUrl(url: string): Promise<string>;
       };
     };
   }
@@ -37,14 +36,13 @@ const DEFAULT_COLORS = {
 
 export default function WebLivePreview() {
   const [url, setUrl] = useState('');
-  const [inlineUrl, setInlineUrl] = useState('');
   const [status, setStatus] = useState<PreviewStatus>('idle');
   const [error, setError] = useState('');
   const [agentConnected, setAgentConnected] = useState(false);
+  const [previewOpened, setPreviewOpened] = useState(false);
   const [colors, setColors] = useState(DEFAULT_COLORS);
   const historyRef = useRef({ entries: [] as string[], index: -1 });
   const [history, setHistory] = useState(historyRef.current);
-  const [frameKey, setFrameKey] = useState(0);
 
   const recordRoute = (nextUrl: string) => {
     const current = historyRef.current;
@@ -80,6 +78,7 @@ export default function WebLivePreview() {
     const unsubscribe = window.ideAPI.on('previewState', next => {
       if (!mounted) return;
       setAgentConnected(next.source === 'agent' && next.status !== 'closed');
+      setPreviewOpened(next.status !== 'closed');
       setStatus(next.status === 'closed' ? 'idle' : next.status);
       if (next.url) {
         setUrl(next.url);
@@ -108,8 +107,13 @@ export default function WebLivePreview() {
     setError('');
     setStatus('loading');
     try {
-      const nextUrl = await window.ideAPI.preview.inlineUrl(url);
-      setInlineUrl(nextUrl);
+      const input = url.trim();
+      if (!input) throw new Error('Enter a local app URL to preview.');
+      const nextUrl = /^[a-z][a-z\d+.-]*:\/\//i.test(input) ? input : `http://${input}`;
+      if (previewOpened) await window.ideAPI.preview.navigate(nextUrl);
+      else await window.ideAPI.preview.open(nextUrl);
+      setPreviewOpened(true);
+      setUrl(nextUrl);
       recordRoute(nextUrl);
     } catch (caught) {
       setStatus('error');
@@ -123,11 +127,12 @@ export default function WebLivePreview() {
     setError('');
     setStatus('loading');
     try {
-      const validatedUrl = await window.ideAPI.preview.inlineUrl(nextUrl);
-      setInlineUrl(validatedUrl);
+      if (previewOpened) await window.ideAPI.preview.navigate(nextUrl);
+      else await window.ideAPI.preview.open(nextUrl);
+      setPreviewOpened(true);
       historyRef.current = { ...historyRef.current, index };
       setHistory(historyRef.current);
-      setUrl(validatedUrl);
+      setUrl(nextUrl);
     } catch (caught) {
       setStatus('error');
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -139,11 +144,6 @@ export default function WebLivePreview() {
 
   const reload = async () => {
     setError('');
-    if (inlineUrl) {
-      setStatus('loading');
-      setFrameKey(previous => previous + 1);
-      return;
-    }
     setStatus('loading');
     try {
       await window.ideAPI.preview.reload();
@@ -182,6 +182,11 @@ export default function WebLivePreview() {
             placeholder="http://localhost:5173"
             spellCheck={false}
           />
+          {status === 'loading' && (
+            <span className="live-preview__progress" role="progressbar" aria-label="Loading preview">
+              <span />
+            </span>
+          )}
           {agentConnected && (
             <span className="live-preview__agent-status" role="status" aria-live="polite">
               CONNECTED TO AGENT
@@ -193,15 +198,10 @@ export default function WebLivePreview() {
         </button>
       </form>
       {error && <p className="live-preview__error" role="alert">{error}</p>}
-      {inlineUrl && (
-        <iframe
-          key={frameKey}
-          className="live-preview__frame"
-          src={inlineUrl}
-          title="Local app preview"
-          sandbox="allow-scripts allow-forms allow-popups allow-modals"
-          onLoad={() => setStatus('ready')}
-        />
+      {!previewOpened && !error && (
+        <div className="live-preview__empty">
+          <span>Enter a local app URL to preview it in Codetist Chromium.</span>
+        </div>
       )}
     </main>
   );

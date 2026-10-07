@@ -6,10 +6,10 @@ for navigation, loading state, and screenshots.
 
 ## Use
 
-1. In the Codetist Plugins view, install **Web Live Preview** locally. The
-   development build is listed there before publication and is copied to the
-   current workspace's `.extensions/web-live-preview` directory, or to
-   `~/.codetist/.extensions/web-live-preview` when no workspace is open.
+1. Keep this development source in `~/web-live-preview`. In the Codetist
+   Plugins view, install **Web Live Preview** locally. The IDE copies it to
+   `~/.codetist/.extensions/web-live-preview`, independent of the open
+   workspace.
 2. Start a development server for your app.
 3. The extension opens after installation; later, open it from the Installed
    section of the Plugins view.
