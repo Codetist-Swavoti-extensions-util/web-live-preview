@@ -167,6 +167,15 @@
   text-align: center;
 }
 
+.live-preview__frame {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  border: 0;
+  background: var(--preview-bg);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .live-preview__agent-status {
     animation: none;

@@ -1,8 +1,7 @@
 # Web Live Preview
 
-An installable Codetist extension for previewing local development servers in an
-inline Chromium view. It uses Codetist's sandboxed `window.ideAPI.preview` API
-for navigation, loading state, and screenshots.
+An installable Codetist extension for previewing local development servers in
+an iframe embedded directly in the extension.
 
 ## Use
 
@@ -13,15 +12,14 @@ for navigation, loading state, and screenshots.
 2. Start a development server for your app.
 3. The extension opens after installation; later, open it from the Installed
    section of the Plugins view.
-4. Enter a loopback URL such as `http://localhost:5173` and press Enter.
-5. Use the reload button, or capture a screenshot to share the preview with the
-   Codetist AI agent.
+4. Enter a loopback URL such as `http://localhost:5173` and press Enter. The
+   app loads inside the extension; it does not open a separate Chromium view.
+5. Use the back, forward, and reload controls to navigate the entered URLs.
 
-Only localhost/loopback URLs are allowed by the preview API.
+Only localhost and loopback URLs are allowed.
 
-The AI agent has built-in `browser_preview` actions for open, navigate, reload,
-screenshot, and close. For AI-controlled preview, install the extension and
-keep its webview open. Agent activity is shown in the extension as `AGENT LIVE`.
+The extension reflects preview URLs and agent activity sent through Codetist's
+`previewState` event.
 
 ## Publish
 

@@ -13,13 +13,6 @@ declare global {
         url?: string;
         error?: string;
       }) => void): () => void;
-      preview: {
-        open(url: string): Promise<unknown>;
-        navigate(url: string): Promise<unknown>;
-        reload(): Promise<unknown>;
-        close(): Promise<unknown>;
-        captureScreenshot(): Promise<string>;
-      };
     };
   }
 }
@@ -34,12 +27,26 @@ const DEFAULT_COLORS = {
   input: '#0b0d11',
 };
 
+function normalizePreviewUrl(input: string) {
+  const value = input.trim();
+  if (!value) throw new Error('Enter a local app URL to preview.');
+  const parsed = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `http://${value}`);
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('Use an HTTP or HTTPS URL.');
+  }
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)) {
+    throw new Error('Preview URLs must use localhost or a loopback address.');
+  }
+  return parsed.href;
+}
+
 export default function WebLivePreview() {
   const [url, setUrl] = useState('');
+  const [currentUrl, setCurrentUrl] = useState('');
   const [status, setStatus] = useState<PreviewStatus>('idle');
   const [error, setError] = useState('');
   const [agentConnected, setAgentConnected] = useState(false);
-  const [previewOpened, setPreviewOpened] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [colors, setColors] = useState(DEFAULT_COLORS);
   const historyRef = useRef({ entries: [] as string[], index: -1 });
   const [history, setHistory] = useState(historyRef.current);
@@ -78,13 +85,29 @@ export default function WebLivePreview() {
     const unsubscribe = window.ideAPI.on('previewState', next => {
       if (!mounted) return;
       setAgentConnected(next.source === 'agent' && next.status !== 'closed');
-      setPreviewOpened(next.status !== 'closed');
-      setStatus(next.status === 'closed' ? 'idle' : next.status);
-      if (next.url) {
-        setUrl(next.url);
-        recordRoute(next.url);
+      if (next.status === 'closed') {
+        setCurrentUrl('');
+        setUrl('');
+        setStatus('idle');
+        setError('');
+        return;
       }
-      setError(next.error || '');
+      if (next.status === 'error') {
+        setStatus('error');
+        setError(next.error || 'The preview could not be loaded.');
+      }
+      if (next.url) {
+        try {
+          const nextUrl = normalizePreviewUrl(next.url);
+          setUrl(nextUrl);
+          setCurrentUrl(nextUrl);
+          setStatus('loading');
+          recordRoute(nextUrl);
+        } catch (caught) {
+          setStatus('error');
+          setError(caught instanceof Error ? caught.message : String(caught));
+        }
+      }
     });
     return () => {
       mounted = false;
@@ -107,14 +130,10 @@ export default function WebLivePreview() {
     setError('');
     setStatus('loading');
     try {
-      const input = url.trim();
-      if (!input) throw new Error('Enter a local app URL to preview.');
-      const nextUrl = /^[a-z][a-z\d+.-]*:\/\//i.test(input) ? input : `http://${input}`;
-      if (previewOpened) await window.ideAPI.preview.navigate(nextUrl);
-      else await window.ideAPI.preview.open(nextUrl);
-      setPreviewOpened(true);
-      setUrl(nextUrl);
-      recordRoute(nextUrl);
+      const normalizedUrl = normalizePreviewUrl(url);
+      setUrl(normalizedUrl);
+      setCurrentUrl(normalizedUrl);
+      recordRoute(normalizedUrl);
     } catch (caught) {
       setStatus('error');
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -127,9 +146,7 @@ export default function WebLivePreview() {
     setError('');
     setStatus('loading');
     try {
-      if (previewOpened) await window.ideAPI.preview.navigate(nextUrl);
-      else await window.ideAPI.preview.open(nextUrl);
-      setPreviewOpened(true);
+      setCurrentUrl(nextUrl);
       historyRef.current = { ...historyRef.current, index };
       setHistory(historyRef.current);
       setUrl(nextUrl);
@@ -143,14 +160,10 @@ export default function WebLivePreview() {
   const goForward = () => navigateHistory(history.index + 1);
 
   const reload = async () => {
+    if (!currentUrl) return;
     setError('');
     setStatus('loading');
-    try {
-      await window.ideAPI.preview.reload();
-    } catch (caught) {
-      setStatus('error');
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
+    setReloadKey(value => value + 1);
   };
 
   return (
@@ -198,9 +211,24 @@ export default function WebLivePreview() {
         </button>
       </form>
       {error && <p className="live-preview__error" role="alert">{error}</p>}
-      {!previewOpened && !error && (
+      {currentUrl ? (
+        <iframe
+          key={`${currentUrl}:${reloadKey}`}
+          className="live-preview__frame"
+          src={currentUrl}
+          title={`Web preview of ${currentUrl}`}
+          onLoad={() => {
+            setStatus('ready');
+            setError('');
+          }}
+          onError={() => {
+            setStatus('error');
+            setError('The preview could not be loaded.');
+          }}
+        />
+      ) : !error && (
         <div className="live-preview__empty">
-          <span>Enter a local app URL to preview it in Codetist Chromium.</span>
+          <span>Enter a local app URL to preview it here.</span>
         </div>
       )}
     </main>
